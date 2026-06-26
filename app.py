@@ -76,11 +76,11 @@ if st.button("Start Transcribing"):
         st.error(f"⚠️ Stream Extraction Error: {str(e)}")
         st.stop()
     
-    # FFmpeg Process (Format එක s16le වලට වෙනස් කළා)
+    # FFmpeg Process එකේ stderr=subprocess.PIPE කියලා වෙනස් කරා
     process = subprocess.Popen(
         ["ffmpeg", "-i", stream_url, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1"], 
         stdout=subprocess.PIPE, 
-        stderr=subprocess.DEVNULL
+        stderr=subprocess.PIPE 
     )
     
     threading.Thread(target=worker_thread, daemon=True).start()
@@ -92,10 +92,11 @@ if st.button("Start Transcribing"):
     st.success("🎙️ System Live! Listening to audio...")
 
     while True:
-        # තත්පර 1ක ශබ්දයක් කියවනවා (32000 bytes)
         frame = process.stdout.read(32000)
         if not frame: 
-            debug_area.error("⚠️ FFmpeg stopped. The live stream might have ended.")
+            # FFmpeg එක නැවතුණාම, ඒකට හේතුව මොකක්ද කියලා අරන් පෙන්නනවා
+            error_output = process.stderr.read().decode('utf-8')
+            debug_area.error(f"⚠️ FFmpeg stopped. Reason:\n\n{error_output}")
             break
         
         buffer += frame
