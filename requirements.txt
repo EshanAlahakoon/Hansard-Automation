@@ -1,0 +1,4 @@
+google-genai
+streamlit
+yt-dlp
+numpy
