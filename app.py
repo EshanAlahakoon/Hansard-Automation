@@ -54,7 +54,7 @@ if st.button("Start Transcribing"):
     output_area = st.empty()
     buffer = b""
     while True:
-        frame = process.stdout.read(6400)
+        frame = process.stdout.read(16000)
         if not frame: break
         buffer += frame
         if len(buffer) >= 32000 * 30:
