@@ -52,7 +52,7 @@ if st.button("Start Transcribing"):
     # URL extraction - (මේක තමයි අලුතින් හැදුවේ Error එක නොඑන්න)
     try:
         ydl_opts = {
-            'format': 'bestaudio', 
+            'format': 'bestaudio/best', 
             'quiet': True, 
             'no_warnings': True,
             'skip_download': True,
