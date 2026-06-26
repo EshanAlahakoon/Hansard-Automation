@@ -17,6 +17,8 @@ final_transcripts = {}
 stop_flag = False
 
 def worker_thread():
+    if not api_keys:
+        return
     client = genai.Client(api_key=api_keys[0])
     while not stop_flag:
         try:
@@ -38,21 +40,51 @@ st.title("🎙️ AI Live Transcriber")
 url = st.text_input("Enter YouTube Live URL")
 
 if st.button("Start Transcribing"):
+    if not api_keys:
+        st.error("⚠️ GEMINI_KEYS not found in Secrets! Please add them in Streamlit settings.")
+        st.stop()
+
     stop_flag = False
     final_transcripts = {}
     
-    # URL extraction
-    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-        stream_url = ydl.extract_info(url, download=False)['url']
+    st.info("🔗 Extracting Stream URL...")
+
+    # URL extraction - (මේක තමයි අලුතින් හැදුවේ Error එක නොඑන්න)
+    try:
+        ydl_opts = {
+            'format': 'bestaudio', 
+            'quiet': True, 
+            'no_warnings': True,
+            'skip_download': True,
+            'ignoreerrors': True,
+            'noplaylist': True
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                st.error("⚠️ Could not extract video info. Check the URL.")
+                st.stop()
+            stream_url = info.get('url')
+    except Exception as e:
+        st.error(f"⚠️ Stream Extraction Error: {str(e)}")
+        st.stop()
     
     # FFmpeg Process
-    process = subprocess.Popen(["ffmpeg", "-i", stream_url, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "wav", "pipe:1"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    process = subprocess.Popen(
+        ["ffmpeg", "-i", stream_url, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "wav", "pipe:1"], 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.DEVNULL
+    )
     
     # Start workers
     threading.Thread(target=worker_thread, daemon=True).start()
     
+    debug_area = st.empty()
     output_area = st.empty()
     buffer = b""
+    
+    st.success("🎙️ System Live! Listening to audio...")
+
     while True:
         frame = process.stdout.read(16000)
         if not frame: break
@@ -61,9 +93,9 @@ if st.button("Start Transcribing"):
             filename = f"chunk_{time.time()}.wav"
             with wave.open(filename, 'wb') as wf:
                 wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(16000); wf.writeframes(buffer)
-            job_queue.put((str(time.time()), filename, datetime.now(pytz.timezone("Asia/Colombo")).strftime("%H:%M")))
+            job_queue.put((str(time.time()), filename, datetime.now(pytz.timezone("Asia/Colombo")).strftime("%H:%M:%S")))
             buffer = b""
             
-        display_text = "".join(final_transcripts.values())
-        st.write(f"DEBUG: Data length in buffer: {len(buffer)}")
+        display_text = "".join([final_transcripts[k] for k in sorted(final_transcripts.keys())])
+        debug_area.write(f"⚙️ DEBUG: Buffer filling up... ({len(buffer)} bytes)")
         output_area.text(display_text or "🎙️ Transcribing...")
