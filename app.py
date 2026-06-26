@@ -65,4 +65,5 @@ if st.button("Start Transcribing"):
             buffer = b""
             
         display_text = "".join(final_transcripts.values())
+        st.write(f"DEBUG: Data length in buffer: {len(buffer)}")
         output_area.text(display_text or "🎙️ Transcribing...")
