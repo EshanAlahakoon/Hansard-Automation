@@ -382,6 +382,7 @@ if start_btn and url:
             info = ydl.extract_info(url, download=False)
             stream_url = info.get('url', url)
     except: 
+        st.error(f"⚠️ yt-dlp failed to extract stream! (Probably IP Blocked by YouTube). Error: {e}")
         stream_url = url
 
     ffmpeg_exe = './ffmpeg.exe' if os.path.exists('./ffmpeg.exe') else 'ffmpeg'
