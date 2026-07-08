@@ -397,9 +397,11 @@ if start_btn and url:
     print(f"\nDEBUG: Extracted stream URL starts with: {stream_url[:100]}...\n")
 
     ffmpeg_exe = './ffmpeg.exe' if os.path.exists('./ffmpeg.exe') else 'ffmpeg'
-    ffmpeg_cmd = [ffmpeg_exe, "-y", "-i", stream_url, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "s16le", "-"]
     
-    # 🔥 DEVNULL අයින් කරා. දැන් FFmpeg error එක terminal එකේ වැටෙනවා
+    # 🔥 අලුත් කෑල්ල: FFmpeg එකට සාමාන්‍ය බ්‍රවුසර් එකක් වගේ හැසිරෙන්න User-Agent එක දෙනවා
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ffmpeg_cmd = [ffmpeg_exe, "-y", "-user_agent", user_agent, "-i", stream_url, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "s16le", "-"]
+    
     state['process'] = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE)
 
     # Start Worker & Reader Threads
