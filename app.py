@@ -9,7 +9,6 @@ import numpy as np
 from datetime import datetime
 import pytz
 import streamlit as st
-import streamlit.components.v1 as components
 import yt_dlp
 import json
 import re
@@ -455,7 +454,8 @@ if state['is_running']:
     </script>
     """
 
-    components.html(custom_html, height=520)
+    # components.html වෙනුවට අලුත් st.html එක පාවිච්චි කරමු
+    st.html(custom_html)
     
     time.sleep(2.0)
     st.rerun()
