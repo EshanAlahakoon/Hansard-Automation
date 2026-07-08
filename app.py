@@ -192,12 +192,11 @@ def worker_thread(stop_flag_list, q, transcripts_dict):
     while not stop_flag_list[0]:
         try: 
             chunk_data = q.get(timeout=1.0)
+            print(f"DEBUG: Processing chunk {chunk_idx}. Audio size: {len(audio_buffer)} bytes")
         except queue.Empty: 
             continue
 
-        # 🔥 FIX: Unpack variables before printing so it doesn't crash the thread
         chunk_idx, chunk_filename, lk_time = chunk_data
-        print(f"DEBUG: Processing chunk {chunk_idx}. File: {chunk_filename}")
 
         # Wait for file to stabilize (OS write delay)
         stable_size = -1
@@ -275,6 +274,7 @@ def worker_thread(stop_flag_list, q, transcripts_dict):
                     time.sleep(1)
 
         # 🔥 Dead Letter Queue: Save file if it fails completely
+        # 🔥 DEBUG FIX: ඇත්තටම එන Error එක මොකක්ද කියලා UI එකේම පෙන්නන්න හදමු
         if not success:
             failed_filename = f"FAILED_{chunk_idx:03d}_{lk_time.replace(':','')}.wav"
             try:
@@ -282,6 +282,7 @@ def worker_thread(stop_flag_list, q, transcripts_dict):
             except:
                 pass
             
+            # මෙතන error_msg එකත් ප්‍රින්ට් කරනවා හරියටම ලෙඩේ අල්ලගන්න
             transcripts_dict[chunk_idx] = f"[{lk_time} | ⚠️ MISSING AUDIO] : Failed after 3 retries. Error: {error_msg}. Saved as {failed_filename}\n\n"
 
         # Cleanup both original and frozen files
@@ -330,3 +331,139 @@ def audio_pipe_reader(pipe, stop_flag_list, q):
 
                 q.put((chunk_idx, chunk_filename, lk_time))
                 audio_buffer = b""
+                chunk_idx += 1
+                
+        except Exception as e:
+            print(f"Audio Reader Error: {e}")
+            break
+
+# ==========================================
+# 5. Streamlit UI Build
+# ==========================================
+st.set_page_config(layout="wide", page_title="🎙️ Gemini Array Transcriber")
+st.markdown("<h1 style='text-align: center;'>🎙️ Gemini Array Real-time Transcriber</h1>", unsafe_allow_html=True)
+st.caption("Auto-scaling UI with background Word Doc hourly auto-saving. Strict ordered chunk alignment.")
+
+url = st.text_input("Enter YouTube Live URL", placeholder="https://...")
+
+col1, col2 = st.columns(2)
+# 🔥 Button lock to prevent Multiple Thread Creation
+with col1: start_btn = st.button("▶ Start Transcribing", use_container_width=True, disabled=state['is_running'])
+with col2: stop_btn = st.button("⏹ Stop Application", use_container_width=True)
+
+if stop_btn:
+    state['is_running'] = False
+    state['stop_flag'][0] = True
+    if state['process']:
+        try: state['process'].terminate()
+        except: pass
+    st.rerun()
+
+if start_btn and url:
+    # 🔥 FFmpeg ඇත්තටම Cloud එකේ ඉන්ස්ටෝල් වෙලාද බලන අලුත් කෑල්ල
+    import shutil
+    if not shutil.which("ffmpeg"):
+        st.error("🚨 Fatal Error: FFmpeg is NOT installed on this cloud server! Please Reboot the app from the Dashboard.")
+        st.stop()
+
+    # Reset states for a fresh run
+    state['is_running'] = True
+    state['stop_flag'][0] = False
+    with state['job_queue'].mutex: state['job_queue'].queue.clear()
+    state['final_transcripts'].clear()
+    state['next_chunk_to_write'] = 0
+
+    # Cleanup old wavs and old failed files before starting
+    for f in os.listdir('.'):
+        if (f.startswith("live_chunk_") or f.startswith("FAILED_")) and f.endswith(".wav"):
+            try: os.remove(f)
+            except: pass
+        if f.endswith(".upload_ready"):
+            try: os.remove(f)
+            except: pass
+
+    # Start FFmpeg
+    try:
+        ydl_opts = {'format': 'ba/b', 'extractor_args': {'youtube': {'player_client': ['android']}}, 'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            stream_url = info.get('url', url)
+    except Exception as e: # 🔥 yt-dlp Exception fixed
+        st.error(f"⚠️ yt-dlp failed to extract stream! (Probably IP Blocked by YouTube). Error: {e}")
+        stream_url = url
+
+    ffmpeg_exe = './ffmpeg.exe' if os.path.exists('./ffmpeg.exe') else 'ffmpeg'
+    ffmpeg_cmd = [ffmpeg_exe, "-y", "-i", stream_url, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "s16le", "-"]
+    state['process'] = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    # Start Worker & Reader Threads
+    for i in range(3):
+        threading.Thread(target=worker_thread, args=(state['stop_flag'], state['job_queue'], state['final_transcripts']), daemon=True).start()
+    threading.Thread(target=audio_pipe_reader, args=(state['process'].stdout, state['stop_flag'], state['job_queue']), daemon=True).start()
+
+    st.rerun()
+
+# ==========================================
+# 6. Live Auto-Refresh Loop
+# ==========================================
+if state['is_running']:
+    st.success("🎙️ System Live! Listening and processing chunks in order...")
+    
+    # Write to Word sequentially
+    while state['next_chunk_to_write'] in state['final_transcripts']:
+        chunk_text = state['final_transcripts'][state['next_chunk_to_write']]
+        append_to_word(chunk_text.strip())
+        state['next_chunk_to_write'] += 1
+
+    # Render display text
+    current_keys = list(state['final_transcripts'].keys())
+    max_chunk = max(current_keys) if current_keys else -1
+    
+    display_text = ""
+    for i in range(max_chunk + 1):
+        if i in state['final_transcripts']:
+            display_text += state['final_transcripts'][i]
+        else:
+            display_text += f"[⏳ Chunk {i} is processing...]\n\n"
+
+    auto_scroll = st.toggle("Auto-Scroll to Bottom", value=True)
+
+    custom_html = f"""
+    <div id="transcript-box" style="
+        width: 100%;
+        height: 500px;
+        overflow-y: auto;
+        background-color: #0E1117; 
+        color: #FAFAFA;
+        padding: 15px;
+        border-radius: 8px;
+        font-family: 'Courier New', Courier, monospace;
+        white-space: pre-wrap;
+        border: 1px solid #4C4C54;
+        line-height: 1.6;
+    ">{display_text}</div>
+
+    <script>
+        var box = document.getElementById("transcript-box");
+        var isAutoScroll = {'true' if auto_scroll else 'false'}; 
+        var scrollPos = sessionStorage.getItem("scrollPosition");
+
+        if (isAutoScroll) {{
+            box.scrollTop = box.scrollHeight;
+        }} else {{
+            if (scrollPos !== null) {{
+                box.scrollTop = parseInt(scrollPos);
+            }}
+        }}
+
+        box.addEventListener("scroll", function() {{
+            sessionStorage.setItem("scrollPosition", box.scrollTop);
+        }});
+    </script>
+    """
+
+    # components.html වෙනුවට අලුත් st.html එක පාවිච්චි කරමු
+    st.html(custom_html)
+    
+    time.sleep(2.0)
+    st.rerun()
