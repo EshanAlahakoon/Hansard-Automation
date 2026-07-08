@@ -192,6 +192,7 @@ def worker_thread(stop_flag_list, q, transcripts_dict):
     while not stop_flag_list[0]:
         try: 
             chunk_data = q.get(timeout=1.0)
+            print(f"DEBUG: Processing chunk {chunk_idx}. Audio size: {len(audio_buffer)} bytes")
         except queue.Empty: 
             continue
 
